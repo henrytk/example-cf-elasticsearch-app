@@ -1,9 +1,14 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
+	"os"
 	"reflect"
+	"strings"
 
 	elastic "gopkg.in/olivere/elastic.v3"
 )
@@ -14,10 +19,35 @@ type Tweet struct {
 }
 
 func main() {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(elasticsearchDemo()))
+	})
+	log.Fatal(http.ListenAndServe(":"+os.Getenv("PORT"), nil))
+}
+
+func elasticsearchDemo() string {
+	var output string
+
+	var options []elastic.ClientOptionFunc
+	esUrls := os.Getenv("ES_URLS")
+	if esUrls != "" {
+		urls := strings.Split(esUrls, ",")
+		options = append(options, elastic.SetURL(urls...))
+	}
+	esBasicAuth := os.Getenv("ES_BASIC_AUTH")
+	if esBasicAuth != "" {
+		basicAuth := strings.Split(esBasicAuth, ":")
+		options = append(options, elastic.SetBasicAuth(basicAuth[0], basicAuth[1]))
+	}
+	options = append(options, elastic.SetSniff(false))
+
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
 	// Create a client
-	client, err := elastic.NewClient()
+	client, err := elastic.NewClient(options...)
 	if err != nil {
 		// Handle error
+		panic(err)
 	}
 
 	// Create an index
@@ -57,7 +87,7 @@ func main() {
 
 	// searchResult is of type SearchResult and returns hits, suggestions,
 	// and all kinds of other information from Elasticsearch.
-	fmt.Printf("Query took %d milliseconds\n", searchResult.TookInMillis)
+	output += fmt.Sprintf("Query took %d milliseconds\n", searchResult.TookInMillis)
 
 	// Each is a convenience function that iterates over hits in a search result.
 	// It makes sure you don't need to check for nil values in the response.
@@ -66,15 +96,15 @@ func main() {
 	var ttyp Tweet
 	for _, item := range searchResult.Each(reflect.TypeOf(ttyp)) {
 		if t, ok := item.(Tweet); ok {
-			fmt.Printf("Tweet by %s: %s\n", t.User, t.Message)
+			output += fmt.Sprintf("Tweet by %s: %s\n", t.User, t.Message)
 		}
 	}
 	// TotalHits is another convenience function that works even when something goes wrong.
-	fmt.Printf("Found a total of %d tweets\n", searchResult.TotalHits())
+	output += fmt.Sprintf("Found a total of %d tweets\n", searchResult.TotalHits())
 
 	// Here's how you iterate through results with full control over each step.
 	if searchResult.Hits.TotalHits > 0 {
-		fmt.Printf("Found a total of %d tweets\n", searchResult.Hits.TotalHits)
+		output += fmt.Sprintf("Found a total of %d tweets\n", searchResult.Hits.TotalHits)
 
 		// Iterate through results
 		for _, hit := range searchResult.Hits.Hits {
@@ -88,11 +118,11 @@ func main() {
 			}
 
 			// Work with tweet
-			fmt.Printf("Tweet by %s: %s\n", t.User, t.Message)
+			output += fmt.Sprintf("Tweet by %s: %s\n", t.User, t.Message)
 		}
 	} else {
 		// No hits
-		fmt.Print("Found no tweets\n")
+		output += fmt.Sprintf("Found no tweets\n")
 	}
 
 	// Delete the index again
@@ -101,4 +131,6 @@ func main() {
 		// Handle error
 		panic(err)
 	}
+
+	return output
 }

@@ -1,0 +1,6 @@
+---
+applications:
+- name: elasticsearch-demo
+  memory: 128M
+  instances: 1
+  buildpack: go_buildpack
